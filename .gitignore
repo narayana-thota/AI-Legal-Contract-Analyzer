@@ -1,0 +1,14 @@
+# 1. Ignore Secrets (Crucial)
+.env
+
+# 2. Ignore Virtual Environment (Too big)
+env/
+venv/
+.venv/
+
+# 3. Ignore Python Cache (Junk files)
+__pycache__/
+*.pyc
+
+# 4. Ignore System files
+.DS_Store
