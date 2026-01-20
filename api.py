@@ -1,49 +1,89 @@
-import shutil
+# ---------------------------------------------------------
+# FILE: api.py (FINAL PRODUCTION - ASYNC COMPATIBLE)
+# ---------------------------------------------------------
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from pydantic import BaseModel
+import uvicorn
 import os
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from langchain_community.document_loaders import PyPDFLoader
+import shutil
 
-# IMPORT YOUR MODULES
-from planning import StrategicPlanningModule
-from agent_graph import analyze_contract_with_graph  # <--- IMPORT THE NEW FILE
+# Import the graph and ingestion tool
+from agent_graph import app as contract_agent_graph
+from ingest_service import process_and_store_document
 
-app = FastAPI(title="Legal AI Planner API", version="2.0")
-planner = StrategicPlanningModule()
+app = FastAPI(title="AI Legal Contract Agent API")
 
-@app.post("/analyze_contract")
-async def full_contract_analysis(file: UploadFile = File(...)):
-    print(f"\n📥 API RECEIVED FILE: {file.filename}")
+class QueryRequest(BaseModel):
+    query: str
+
+@app.get("/")
+def home():
+    return {"status": "Online", "message": "AI Legal Agent is ready."}
+
+# --- UPLOAD ENDPOINT ---
+@app.post("/upload")
+async def upload_document(file: UploadFile = File(...)):
+    print(f"📥 RECEIVING FILE: {file.filename}")
+    temp_file_path = f"temp_{file.filename}"
     
-    temp_filename = f"temp_{file.filename}"
-    with open(temp_filename, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
     try:
-        # 1. READ PDF (First 3 pages for Planning)
-        print("   Step 1: Scanning Document...")
-        loader = PyPDFLoader(temp_filename)
-        pages = loader.load()
-        text_sample = "".join([p.page_content for p in pages[:3]])
+        with open(temp_file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        success = process_and_store_document(temp_file_path)
         
-        # 2. GENERATE PLAN (Module 2)
-        print("   Step 2: Generating Strategic Plan...")
-        agent_plan = planner.generate_agent_roster(text_sample)
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
         
-        # 3. EXECUTE GRAPH (Module 3)
-        print("   Step 3: Executing AI Agents...")
-        final_reports = analyze_contract_with_graph(agent_plan)
+        if success:
+            return {"status": "success", "filename": file.filename}
+        else:
+            raise HTTPException(status_code=500, detail="Ingestion Failed")
+            
+    except Exception as e:
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- ANALYZE ENDPOINT (ASYNC UPGRADE) ---
+@app.post("/analyze")
+async def analyze_contract(request: QueryRequest):
+    print(f"📥 Received Query: {request.query}")
+    try:
+        # Initialize State
+        inputs = {
+            "user_query": request.query,
+            "revision_number": 1,
+            "messages": [],
+            "plan": [],       
+            "documents": [],
+            "risk_score": 0,
+            "risk_summary": "Pending...",
+            "confidence_score": 0.0,
+            "agent_reports": {},     
+            "executive_summary": ""  
+        }
         
-        # Cleanup
-        os.remove(temp_filename)
+        # --- THE FIX IS HERE ---
+        # OLD WAY (Synchronous - Causes Error 500):
+        # result = contract_agent_graph.invoke(inputs, config={"recursion_limit": 15})
         
-        # 4. RETURN FINAL REPORT
+        # NEW WAY (Asynchronous - Supports Parallelism):
+        result = await contract_agent_graph.ainvoke(inputs, config={"recursion_limit": 15})
+        
+        # Response Construction
         return {
-            "status": "Success",
-            "strategy_used": [a['role'] for a in agent_plan],
-            "executive_summary": final_reports
+            "executive_summary": result.get("executive_summary", "Analysis complete."),
+            "agent_reports": result.get("agent_reports", {}),
+            "risk_score": result.get("risk_score", 0),
+            "risk_summary": result.get("risk_summary", ""),
+            "confidence_score": result.get("confidence_score", 0.0),
+            "result": result.get("final_report", "") # Fallback for old UI
         }
 
     except Exception as e:
-        if os.path.exists(temp_filename):
-            os.remove(temp_filename)
+        print(f"❌ Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    print("🚀 STARTING BACKEND SERVER...")
+    uvicorn.run(app, host="127.0.0.1", port=8000)

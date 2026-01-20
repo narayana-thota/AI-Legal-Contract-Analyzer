@@ -1,108 +1,117 @@
-import uuid
-from typing import List, Dict, Any
+# ---------------------------------------------------------
+# FILE: planning.py (SEMANTIC INTENT ENGINE - EXPERT LEVEL)
+# ---------------------------------------------------------
+import os
+import json
+import re
+from typing import List
+from dotenv import load_dotenv
+from langchain_groq import ChatGroq
+from langchain_core.messages import SystemMessage
+from pydantic import BaseModel, Field
 
-class StrategicPlanningModule:
-    """
-    ADVANCED PLANNER:
-    Uses Keyword Frequency Analysis to dynamically score and rank 
-    which AI Agents are needed for a specific document.
-    """
+load_dotenv()
 
-    # 1. DEFINE INTELLIGENCE MAPPINGS (The Knowledge Base)
-    # We map specific keywords to specific Agents to calculate "Relevance Scores"
-    DOMAIN_KNOWLEDGE_BASE = {
-        "Finance_Agent": {
-            "keywords": ["payment", "invoice", "fee", "currency", "tax", "penalty", "pricing", "cost", "dollar", "amount"],
-            "objective": "Analyze financial exposure, recurring costs, and payment structures.",
-            "base_priority": 1
-        },
-        "Legal_Agent": {
-            "keywords": ["indemnification", "liability", "jurisdiction", "arbitration", "termination", "law", "court", "breach"],
-            "objective": "Identify liability risks, legal loopholes, and governing law clauses.",
-            "base_priority": 2
-        },
-        "Ops_Agent": {
-            "keywords": ["sla", "uptime", "availability", "maintenance", "support", "delivery", "shipping", "response time"],
-            "objective": "Validate operational guarantees, service levels (SLA), and support metrics.",
-            "base_priority": 1
-        },
-        "Compliance_Agent": {
-            "keywords": ["gdpr", "privacy", "data", "audit", "security", "regulation", "iso", "compliance", "standard"],
-            "objective": "Ensure adherence to data privacy laws (GDPR/CCPA) and security standards.",
-            "base_priority": 3 # Always checks last unless critical
-        }
-    }
+# Initialize the Brain (Llama-3)
+llm = ChatGroq(
+    model="llama-3.1-8b-instant",
+    temperature=0,  # Zero temperature = Strict Logic
+    groq_api_key=os.getenv("GROQ_API_KEY")
+)
 
-    def __init__(self):
-        pass
+# --- DATA STRUCTURES ---
+class AgentTask(BaseModel):
+    role: str = Field(description="Agent Name")
+    objective: str = Field(description="Specific goal")
 
-    def _calculate_relevance_scores(self, text_sample: str) -> Dict[str, int]:
-        """
-        Internal Logic: Scans the text and counts keywords to see which domain dominates.
-        """
-        scores = {}
-        text_lower = text_sample.lower()
+# --- STANDARD PROTOCOLS (The "Playbook") ---
+# We define the "Standard Operating Procedure" for a full audit here.
+# This ensures consistency whenever a general summary is requested.
+FULL_AUDIT_PLAYBOOK = [
+    {"role": "Legal Agent", "objective": "Summarize parties, jurisdiction, term length, and key liability clauses."},
+    {"role": "Finance Agent", "objective": "Extract total contract value, payment schedule, late fees, and penalties."},
+    {"role": "Compliance Agent", "objective": "Check for data privacy (GDPR/CCPA), security standards, and audit rights."},
+    {"role": "Operations Agent", "objective": "List key deliverables, milestones, SLAs, and support obligations."}
+]
 
-        for agent_name, config in self.DOMAIN_KNOWLEDGE_BASE.items():
-            count = 0
-            for keyword in config["keywords"]:
-                count += text_lower.count(keyword)
-            scores[agent_name] = count
-            
-        return scores
-
-    def generate_agent_roster(self, text_sample: str) -> List[Dict[str, Any]]:
-        """
-        The Main Function: Returns a customized list of agents based on the document content.
-        """
-        print("\n🧠 PLANNER: Analyzing document DNA...")
-        
-        # 1. Get Scores (e.g., {'Finance': 15, 'Legal': 5})
-        scores = self._calculate_relevance_scores(text_sample)
-        print(f"📊 Relevance Scores: {scores}")
-
-        active_agents = []
-
-        # 2. Logic: Only activate agents that are actually needed
-        # Threshold: If an agent's keywords appear < 2 times, maybe we don't need them?
-        # (For now, we keep the threshold low to be safe, but this logic is impressive).
-        
-        threshold = 1 
-
-        for agent_name, score in scores.items():
-            # Always include Legal & Compliance for safety, even if score is low
-            is_mandatory = agent_name in ["Legal_Agent", "Compliance_Agent"]
-            
-            if score >= threshold or is_mandatory:
-                config = self.DOMAIN_KNOWLEDGE_BASE[agent_name]
-                
-                # Create the Agent Config
-                agent_profile = {
-                    "id": str(uuid.uuid4())[:8], # Short ID
-                    "role": agent_name,
-                    "objective": config["objective"],
-                    "priority": "HIGH" if score > 5 else "STANDARD",
-                    "relevance_score": score
-                }
-                active_agents.append(agent_profile)
-
-        # 3. Sort agents by Priority (High scores go first)
-        active_agents.sort(key=lambda x: x['relevance_score'], reverse=True)
-        
-        print(f"✅ PLANNER: Deployed {len(active_agents)} specialized agents.\n")
-        return active_agents
-
-# --- TEST CODE (To verify Day 1 Work) ---
-if __name__ == "__main__":
-    # Simulate a "Financial Invoice" document text
-    dummy_text = """
-    The total Fee is 5000 dollars. Payment is due upon receipt of Invoice.
-    Late penalty is 5%. Tax is not included. 
-    Jurisdiction shall be New York.
+def create_execution_plan(user_query):
+    print(f"\n🧠 PLANNING: Classifying Intent for: '{user_query}'...")
+    
+    # --- STAGE 1: INTENT CLASSIFICATION (The "Manager") ---
+    # We don't match words. We ask the AI to categorize the request.
+    
+    classification_prompt = """
+    You are a Senior Project Manager. Classify the User's Query into one of two categories:
+    
+    1. **GLOBAL_AUDIT**: The user wants a summary, overview, briefing, or full analysis of the document.
+       - Keywords (Examples only): "summarize", "explain", "what is this", "audit", "brief me", "review", "digest", "tl;dr".
+       
+    2. **TARGETED_QUERY**: The user is asking about a specific topic (money, laws, dates, risks).
+       - Examples: "What are the payment terms?", "Is there an indemnity clause?", "When does this expire?"
+    
+    RETURN JSON ONLY: { "category": "GLOBAL_AUDIT" } or { "category": "TARGETED_QUERY" }
     """
     
-    planner = StrategicPlanningModule()
-    roster = planner.generate_agent_roster(dummy_text)
+    try:
+        # Ask the AI to classify
+        resp = llm.invoke([
+            SystemMessage(content=classification_prompt),
+            SystemMessage(content=f"User Query: {user_query}")
+        ])
+        
+        # Safe Parse
+        match = re.search(r"\{.*\}", resp.content, re.DOTALL)
+        if match:
+            intent_data = json.loads(match.group(0))
+            category = intent_data.get("category", "TARGETED_QUERY")
+        else:
+            category = "TARGETED_QUERY" # Default to specific if unsure
+
+        print(f"   🚀 CLASSIFICATION: {category}")
+
+        # --- STAGE 2: EXECUTION STRATEGY ---
+        
+        if category == "GLOBAL_AUDIT":
+            # If the user wants a summary, we ALWAYS run the full playbook.
+            return FULL_AUDIT_PLAYBOOK
+
+        else:
+            # If it's a specific question, we use the "Chain of Thought" Router to pick agents.
+            return generate_targeted_plan(user_query)
+
+    except Exception as e:
+        print(f"   ⚠️ Planner Error: {e}")
+        # Universal Fallback -> Just run the Legal Agent
+        return [{"role": "Legal Agent", "objective": "Analyze the user's request."}]
+
+def generate_targeted_plan(query):
+    """
+    Helper function to map specific questions to specific agents.
+    """
+    router_prompt = """
+    You are the Router. Map the specific question to the correct Expert Agent(s).
     
-    for agent in roster:
-        print(f"   - [{agent['priority']}] {agent['role']} (Score: {agent['relevance_score']})")
+    ### AGENT DOMAINS
+    - **Legal Agent**: Liability, Indemnity, IP, Termination, Jurisdiction.
+    - **Finance Agent**: Fees, Payments, Taxes, Penalties, Budget.
+    - **Compliance Agent**: GDPR, Security, Data Privacy, Audits.
+    - **Operations Agent**: SLAs, Deliverables, Timelines, Support.
+    
+    ### INSTRUCTIONS
+    1. Analyze the query.
+    2. Select the BEST agent(s).
+    3. Write a specific objective.
+    
+    OUTPUT JSON: { "tasks": [ {"role": "Agent Name", "objective": "Specific Task"} ] }
+    """
+    
+    resp = llm.invoke([
+        SystemMessage(content=router_prompt),
+        SystemMessage(content=f"Query: {query}")
+    ])
+    
+    match = re.search(r"\{.*\}", resp.content, re.DOTALL)
+    if match:
+        return json.loads(match.group(0)).get("tasks", [])
+    else:
+        return [{"role": "Legal Agent", "objective": f"Answer: {query}"}]
