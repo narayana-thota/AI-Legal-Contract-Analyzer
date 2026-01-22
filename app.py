@@ -163,11 +163,20 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- HELPER: CONFIDENCE CALIBRATION ---
+# --- HELPER: CONFIDENCE CALIBRATION (OPTIMIZED) ---
 def calibrate_confidence(raw_score):
-    """Professional confidence scaling for user-friendly display"""
+    """
+    Professional confidence scaling.
+    OPTIMIZATION: Adjusted formula to prevent saturation at 99%.
+    Raw scores of 0.3-0.6 will now map to 60-90% range, showing realistic variance.
+    """
     if raw_score <= 0.01: return 0.0
-    calibrated = (raw_score * 2.5) + 0.15
+    
+    # New Formula: Smoother curve, less aggressive multiplier
+    # 0.30 -> ~63%
+    # 0.45 -> ~85%
+    # 0.60 -> ~99%
+    calibrated = (raw_score * 1.6) + 0.15
     return min(calibrated, 0.99) * 100
 
 # --- HELPER: INTELLIGENT RISK CALCULATION ---
@@ -335,17 +344,32 @@ with st.sidebar:
     uploaded_file = st.file_uploader("📄 Upload Agreement (PDF)", type=["pdf"])
     
     if uploaded_file:
+        # LOGIC FIX: Check if this file is different from the last one
         if "current_file" not in st.session_state or st.session_state.current_file != uploaded_file.name:
             with st.spinner("🔄 Indexing Document Vector Space..."):
                 try:
                     files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
-                    requests.post(f"{API_URL}/upload", files=files)
-                    st.session_state.current_file = uploaded_file.name
-                    st.success("✅ Document Indexed Successfully!")
-                    time.sleep(1)
-                    st.rerun()
-                except:
-                    st.error("❌ Server Connection Failed")
+                    
+                    # LOGIC FIX: Wrapped in specific try/except to catch connection issues
+                    response = requests.post(f"{API_URL}/upload", files=files)
+                    
+                    if response.status_code == 200:
+                        st.session_state.current_file = uploaded_file.name
+                        # LOGIC FIX: Clear old chat history and metrics when new file is uploaded
+                        st.session_state.messages = []
+                        st.session_state["confidence_score"] = 0.0
+                        st.session_state["risk_score"] = 0
+                        st.session_state["agent_reports"] = {}
+                        
+                        st.success("✅ Document Indexed Successfully!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Upload failed: {response.text}")
+                except requests.exceptions.ConnectionError:
+                    st.error("❌ Cannot connect to Backend Server. Is it running?")
+                except Exception as e:
+                    st.error(f"❌ Error during upload: {e}")
     
     st.divider()
     
@@ -462,6 +486,8 @@ with tab_chat:
                     
                     st.rerun()
 
+                except requests.exceptions.ConnectionError:
+                    st.error("❌ Connection Error: Is the Backend Server Running?")
                 except Exception as e:
                     st.error(f"⚠️ Analysis Error: {e}")
 
