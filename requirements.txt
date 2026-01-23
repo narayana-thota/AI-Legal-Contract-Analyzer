@@ -1,7 +1,7 @@
-streamlit
+fastapi
+uvicorn
+python-multipart
 requests
-plotly
-pandas
 python-dotenv
 langchain
 langchain-groq
@@ -10,9 +10,7 @@ langchain-pinecone
 langchain-community
 langgraph
 pinecone-client
-sentence-transformers
-fastapi
-uvicorn
-python-multipart
-# If you use opencv, use the headless version for servers:
+pandas
+plotly
 opencv-python-headless
+streamlit
