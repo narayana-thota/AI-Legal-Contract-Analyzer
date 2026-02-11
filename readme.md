@@ -11,7 +11,7 @@
 ---
 
 ## 🚀 Live Application
-**[Click Here to Launch Dashboard](https://ai-legal-contract-analyzer.streamlit.app)**
+**[Click Here to Launch Dashboard](https://narayana-thota-ai-legal-contract-analyzer-app-dzwx7o.streamlit.app/)**
 
 *Note: The backend runs on serverless infrastructure. Please allow 30-60 seconds for the initial cold start.*
 
@@ -99,5 +99,8 @@ This project is distributed under the MIT License. Refer to the LICENSE file for
 
 ---
 
-**Author:** Thota Om Sada Siva Venkata Narayana
-**Affiliation:** Infosys Springboard Intern - Batch 2026
+**Author:**
+Thota Om Sada Siva Venkata Narayana
+
+**Affiliation:**
+Infosys Springboard Intern - Batch 2026
