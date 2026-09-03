@@ -14,7 +14,7 @@ load_dotenv()
 
 # Initialize the Brain (Llama-3)
 llm = ChatGroq(
-    model="llama-3.1-8b-instant",
+    model="openai/gpt-oss-20b",
     temperature=0,  # Zero temperature = Strict Logic
     groq_api_key=os.getenv("GROQ_API_KEY")
 )
